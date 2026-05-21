@@ -148,8 +148,12 @@ export class BoardRenderer extends Component {
 
     // 查找最近的棋盘点位
     const nearest = this._findNearestPoint(nodePos.x, nodePos.y);
-    if (nearest < 0) return;
+    if (nearest < 0) {
+      console.log(`[触摸] 点击位置(${nodePos.x.toFixed(0)},${nodePos.y.toFixed(0)}) 未命中任何点位`);
+      return;
+    }
 
+    console.log(`[触摸] 点击点位 #${nearest} 位置(${nodePos.x.toFixed(0)},${nodePos.y.toFixed(0)})`);
     this.onPointClick?.(nearest);
   }
 

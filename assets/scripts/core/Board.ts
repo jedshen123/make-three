@@ -89,10 +89,14 @@ export class Board {
    */
   checkNewMills(lastPoint: number, player: Player): MillLine[] {
     const newMills: MillLine[] = [];
+    const playerName = player === Player.Black ? '黑方' : '白方';
     for (const line of MILL_LINES) {
       if (!line.includes(lastPoint)) continue;
+      const values = line.map((p) => `[${p}]=${this._board[p]}`);
+      const isMill = line.every((p) => this._board[p] === player);
+      console.log(`[成三检测] ${playerName} 落子${lastPoint}, 检查线 ${line}: ${values.join(' ')} → ${isMill ? '成三!' : '未成三'}`);
       // 检查这条线上的三个点是否都被同一玩家占据
-      if (line.every((p) => this._board[p] === player)) {
+      if (isMill) {
         newMills.push(line);
       }
     }
