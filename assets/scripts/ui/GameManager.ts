@@ -99,6 +99,8 @@ export class GameManager extends Component {
       this.uiManager?.showMessage('落子成功', 0.5);
       if (result.needRemove) {
         this._clickMode = 'removePiece';
+        this.boardRenderer?.refreshBoard(); // 成三后刷新棋盘，否则新落棋子不可见
+        this.uiManager?.updateUI();
       } else {
         this._afterTurn();
       }
@@ -129,6 +131,8 @@ export class GameManager extends Component {
       this._selectedFrom = -1;
       if (result.needRemove) {
         this._clickMode = 'removePiece';
+        this.boardRenderer?.refreshBoard(); // 成三后刷新棋盘
+        this.uiManager?.updateUI();
       } else {
         this._afterTurn();
       }
