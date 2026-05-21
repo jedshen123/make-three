@@ -256,10 +256,9 @@ export class GameEngine {
         this._board.placePiece(i, state.board[i]);
       }
     }
+    // 恢复被吃棋子的标记
     for (const idx of state.blockedCells) {
       this._board.removePiece(idx);
-      // 重新标记blocked
-      // board.removePiece 已经标记了blockedCells
     }
     this._currentPlayer = state.currentPlayer;
     this._phase = state.phase;
@@ -270,11 +269,6 @@ export class GameEngine {
     this._history = [...state.history];
     this._mustRemovePiece = state.mustRemovePiece;
 
-    // 重新设置blockedCells
-    for (const idx of state.blockedCells) {
-      this._board.removePiece(idx);
-    }
-
     this._notifyStateChanged();
   }
 
@@ -282,13 +276,9 @@ export class GameEngine {
 
   /** 结束当前回合，切换到对方 */
   private _endTurn(): void {
-    // 检查是否需要进入走棋阶段
+    // 检查是否需要进入走棋阶段：双方手中都没有棋子时切换
     if (this._phase === GamePhase.Placing) {
-      const totalPlaced =
-        this._piecesOnBoard[Player.Black] + this._piecesOnBoard[Player.White];
-
-      if (totalPlaced >= 24) {
-        // 所有棋子都下完了
+      if (this._piecesInHand[Player.Black] <= 0 && this._piecesInHand[Player.White] <= 0) {
         this._phase = GamePhase.Moving;
       }
     }
