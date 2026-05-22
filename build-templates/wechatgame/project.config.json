@@ -1,0 +1,13 @@
+{
+  "description": "成三棋 - 经典传统棋类游戏",
+  "setting": {
+    "urlCheck": true,
+    "es6": true,
+    "postcss": true,
+    "minified": true
+  },
+  "compileType": "game",
+  "appid": "",
+  "projectname": "make-three",
+  "condition": {}
+}
