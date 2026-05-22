@@ -4,11 +4,12 @@ import { GameEngine } from '../core/GameEngine';
 import { AIController, AIDifficulty } from '../core/AIController';
 import { BoardRenderer } from './BoardRenderer';
 import { UIManager } from './UIManager';
+import { NetworkManager, NetworkState } from '../network/NetworkManager';
 const { ccclass, property } = _decorator;
 
 /**
  * 游戏管理器（核心组件）
- * 串联游戏引擎、棋盘渲染和UI管理，处理用户交互
+ * 支持：本地双人 / AI对战 / 在线对战
  */
 @ccclass('GameManager')
 export class GameManager extends Component {
@@ -18,29 +19,28 @@ export class GameManager extends Component {
   @property({ type: UIManager })
   uiManager!: UIManager;
 
-  /** 游戏引擎（公开，供外部访问如 SceneHelper 的 replay 按钮） */
+  @property({ type: NetworkManager })
+  networkManager!: NetworkManager;
+
   engine!: GameEngine;
 
   private _aiController: AIController | null = null;
-
-  /** 当前操作类型（用于区分点击是放棋还是吃子） */
   private _clickMode: 'placeOrMove' | 'removePiece' = 'placeOrMove';
-
-  /** 走棋阶段选中的棋子 */
   private _selectedFrom: number = -1;
 
-  onLoad(): void {
-    // SceneHelper 可能在 start() 里才设置引用，这里做延迟启动
-  }
+  /** 在线模式：我的颜色，只有我的回合才能操作 */
+  private _myColor: Player = Player.None;
+
+  onLoad(): void {}
 
   start(): void {
-    // 如果外部还未设置 boardRenderer / uiManager，尝试自动查找
-    if (!this.boardRenderer) {
+    // 自动查找未绑定的组件
+    if (!this.boardRenderer)
       this.boardRenderer = this.node.parent?.getComponentInChildren(BoardRenderer) || null as any;
-    }
-    if (!this.uiManager) {
+    if (!this.uiManager)
       this.uiManager = this.node.parent?.getComponentInChildren(UIManager) || null as any;
-    }
+    if (!this.networkManager)
+      this.networkManager = this.node.parent?.getComponentInChildren(NetworkManager) || null as any;
 
     // 获取游戏模式
     let mode = GameMode.LocalTwoPlayer;
@@ -61,23 +61,106 @@ export class GameManager extends Component {
       this.uiManager.setEngine(this.engine);
     }
 
-    // AI模式初始化
+    // 根据模式初始化
     if (mode === GameMode.AI) {
-      this._aiController = new AIController(this.engine, Player.White, AIDifficulty.Medium);
-      if (this.uiManager) {
-        this.uiManager.setAIController(this._aiController);
-      }
+      this._initAIMode();
+    } else if (mode === GameMode.Online) {
+      this._initOnlineMode();
     }
 
     this.uiManager?.updateUI();
   }
 
-  /** 处理棋盘点位点击 */
+  // ==================== 模式初始化 ====================
+
+  private _initAIMode(): void {
+    this._aiController = new AIController(this.engine, Player.White, AIDifficulty.Medium);
+    this.uiManager?.setAIController(this._aiController);
+  }
+
+  private _initOnlineMode(): void {
+    if (!this.networkManager) {
+      this.uiManager?.showMessage('网络模块未配置', 3);
+      return;
+    }
+
+    this.uiManager?.showOnlineConnecting();
+
+    this.networkManager.connect();
+
+    this.networkManager.onError = (msg) => {
+      this.uiManager?.showMessage(msg, 3);
+    };
+
+    this.networkManager.onStateChanged = (state) => {
+      if (state === NetworkState.Connected) {
+        this.networkManager.startMatch();
+        this.uiManager?.showOnlineWaiting();
+      } else if (state === NetworkState.Waiting) {
+        this.uiManager?.showOnlineWaiting();
+      }
+    };
+
+    this.networkManager.onMatched = (myColor) => {
+      this._myColor = myColor;
+      this.uiManager?.showOnlineMatched(myColor);
+
+      // 等待一小段后进入游戏
+      setTimeout(() => {
+        this.uiManager?.hideOnlinePanel();
+        this.uiManager?.updateUI();
+
+        // 如果我是白方，需要等待对手先手
+        if (myColor === Player.White) {
+          this.uiManager?.showMessage('等待对手落子...', 2);
+        }
+      }, 1500);
+    };
+
+    // 对手操作回调
+    this.networkManager.onOpponentPlace = (position) => {
+      this.engine.placePiece(position);
+      this.boardRenderer?.refreshBoard();
+      this.uiManager?.updateUI();
+    };
+
+    this.networkManager.onOpponentMove = (from, to) => {
+      this.engine.movePiece(from, to);
+      this.boardRenderer?.refreshBoard();
+      this.uiManager?.updateUI();
+    };
+
+    this.networkManager.onOpponentRemove = (position) => {
+      this.engine.removePiece(position);
+      this.boardRenderer?.refreshBoard();
+      this.uiManager?.updateUI();
+    };
+
+    this.networkManager.onOpponentSurrender = () => {
+      this.engine.surrender();
+    };
+
+    this.networkManager.onOpponentDisconnected = () => {
+      this.uiManager?.showMessage('对手已断开连接', 3);
+      this.engine.surrender();
+    };
+  }
+
+  // ==================== 点击处理 ====================
+
   private _handlePointClick(index: number): void {
     if (this.engine.phase === GamePhase.GameOver) return;
 
-    // AI回合不允许操作
+    // AI 回合不允许操作
     if (this._aiController && this.engine.currentPlayer === this._aiController.aiPlayer) return;
+
+    // 在线模式：不是我的回合不允许操作
+    if (this.networkManager && this._myColor !== Player.None) {
+      if (this.engine.currentPlayer !== this._myColor) {
+        this.uiManager?.showMessage('等待对手操作...', 0.8);
+        return;
+      }
+    }
 
     if (this._clickMode === 'removePiece') {
       this._doRemovePiece(index);
@@ -91,15 +174,21 @@ export class GameManager extends Component {
     }
   }
 
-  /** 下棋阶段：放置棋子 */
+  // ==================== 下棋 ====================
+
   private _doPlacePiece(index: number): void {
     const result = this.engine.placePiece(index);
 
     if (result.success) {
+      // 在线模式：同步给对手
+      if (this.networkManager && this._myColor !== Player.None) {
+        this.networkManager.sendPlace(index);
+      }
+
       this.uiManager?.showMessage('落子成功', 0.5);
       if (result.needRemove) {
         this._clickMode = 'removePiece';
-        this.boardRenderer?.refreshBoard(); // 成三后刷新棋盘，否则新落棋子不可见
+        this.boardRenderer?.refreshBoard();
         this.uiManager?.updateUI();
       } else {
         this._afterTurn();
@@ -109,11 +198,11 @@ export class GameManager extends Component {
     }
   }
 
-  /** 走棋阶段：移动棋子 */
+  // ==================== 走棋 ====================
+
   private _doMovePiece(index: number): void {
     const board = this.engine.board;
 
-    // 第一步：选择己方棋子
     if (this._selectedFrom < 0) {
       if (board.getPiece(index) !== this.engine.currentPlayer) {
         this.uiManager?.showMessage('请选择己方棋子', 0.8);
@@ -124,20 +213,23 @@ export class GameManager extends Component {
       return;
     }
 
-    // 第二步：选择目标位置
     const result = this.engine.movePiece(this._selectedFrom, index);
 
     if (result.success) {
+      // 在线模式：同步给对手
+      if (this.networkManager && this._myColor !== Player.None) {
+        this.networkManager.sendMove(this._selectedFrom, index);
+      }
+
       this._selectedFrom = -1;
       if (result.needRemove) {
         this._clickMode = 'removePiece';
-        this.boardRenderer?.refreshBoard(); // 成三后刷新棋盘
+        this.boardRenderer?.refreshBoard();
         this.uiManager?.updateUI();
       } else {
         this._afterTurn();
       }
     } else {
-      // 如果点击的是己方棋子，切换选中
       if (board.getPiece(index) === this.engine.currentPlayer) {
         this._selectedFrom = index;
         this.boardRenderer?.selectPiece(index);
@@ -149,11 +241,17 @@ export class GameManager extends Component {
     }
   }
 
-  /** 吃子操作 */
+  // ==================== 吃子 ====================
+
   private _doRemovePiece(index: number): void {
     const result = this.engine.removePiece(index);
 
     if (result.success) {
+      // 在线模式：同步给对手
+      if (this.networkManager && this._myColor !== Player.None) {
+        this.networkManager.sendRemove(index);
+      }
+
       this._clickMode = 'placeOrMove';
       this.uiManager?.showMessage('吃子成功', 0.5);
       this.boardRenderer?.refreshBoard();
@@ -163,7 +261,8 @@ export class GameManager extends Component {
     }
   }
 
-  /** 回合结束后的处理 */
+  // ==================== 回合结束 ====================
+
   private _afterTurn(): void {
     this.boardRenderer?.refreshBoard();
     this.uiManager?.updateUI();
@@ -176,6 +275,13 @@ export class GameManager extends Component {
           this.uiManager?.updateUI();
         });
       }
+    }
+
+    // 在线模式：提示等待对手
+    if (this.networkManager && this._myColor !== Player.None &&
+        this.engine.currentPlayer !== this._myColor &&
+        this.engine.phase !== GamePhase.GameOver) {
+      this.uiManager?.showMessage('等待对手操作...', 2);
     }
   }
 }

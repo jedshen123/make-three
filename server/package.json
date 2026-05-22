@@ -1,0 +1,13 @@
+{
+  "name": "make-three-server",
+  "version": "1.0.0",
+  "description": "成三棋在线对战服务器",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

@@ -2,6 +2,7 @@ import { _decorator, Component, Node, Label, Graphics, Button, Color, UITransfor
 import { BoardRenderer } from './BoardRenderer';
 import { UIManager } from './UIManager';
 import { GameManager } from './GameManager';
+import { NetworkManager } from '../network/NetworkManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -82,11 +83,21 @@ export class SceneHelper extends Component {
     // ── UI 层 ──
     const uiManager = this._buildUI(gameRoot);
 
+    // ── 网络模块 ──
+    const netNode = this._createNode('NetworkManager', gameRoot);
+    const networkManager = netNode.addComponent(NetworkManager);
+
+    // ── 在线对战等待面板 ──
+    const onlinePanel = this._buildOnlinePanel(uiManager);
+
     // ── 游戏管理器 ──
     const gmNode = this._createNode('GameManager', gameRoot);
     const gameManager = gmNode.addComponent(GameManager);
     gameManager.boardRenderer = boardRenderer;
     gameManager.uiManager = uiManager;
+    gameManager.networkManager = networkManager;
+    // 在线认输需要网络同步
+    uiManager.networkManager = networkManager;
 
     console.log('[SceneHelper] 场景自搭建完成');
   }
@@ -224,6 +235,55 @@ export class SceneHelper extends Component {
     uiManager.messagePopupLabel = msgLabel.getComponent(Label)!;
 
     return uiManager;
+  }
+
+  // ==================== 在线对战面板 ====================
+
+  private _buildOnlinePanel(uiManager: UIManager): Node {
+    const panel = this._createNode('OnlinePanel', uiManager.node);
+    panel.addComponent(UITransform).setContentSize(new Size(this.designWidth, this.designHeight));
+    panel.active = false;
+
+    // 半透明遮罩
+    const overlay = this._createNode('OnlineOverlay', panel);
+    overlay.addComponent(UITransform).setContentSize(new Size(this.designWidth, this.designHeight));
+    const olGraphics = overlay.addComponent(Graphics);
+    olGraphics.fillColor = new Color(0, 0, 0, 180);
+    olGraphics.rect(-this.designWidth / 2, -this.designHeight / 2, this.designWidth, this.designHeight);
+    olGraphics.fill();
+
+    // 面板卡片
+    const card = this._createNode('OnlineCard', panel);
+    card.addComponent(UITransform).setContentSize(new Size(360, 220));
+
+    const cardBg = card.addComponent(Graphics);
+    cardBg.fillColor = new Color(60, 40, 20, 240);
+    cardBg.roundRect(-180, -110, 360, 220, 16);
+    cardBg.fill();
+    cardBg.strokeColor = new Color(200, 170, 120, 200);
+    cardBg.lineWidth = 2;
+    cardBg.roundRect(-180, -110, 360, 220, 16);
+    cardBg.stroke();
+
+    const label = this._createLabel('OnlineLabel', card, '正在连接...', 30, Color.WHITE);
+    label.setPosition(0, 20, 0);
+
+    // 取消按钮
+    const cancelBtn = this._createButton('CancelMatchBtn', card, '取消', 0, -60, 180, 48);
+    cancelBtn.node.on(Button.EventType.CLICK, () => {
+      const net = director.getScene()?.getComponentInChildren(NetworkManager);
+      if (net) {
+        net.cancelMatch();
+        net.disconnect();
+      }
+      director.loadScene('MainMenu');
+    });
+
+    // 绑定到 UIManager
+    uiManager.onlinePanel = panel;
+    uiManager.onlineLabel = label.getComponent(Label);
+
+    return panel;
   }
 
   // ==================== 主菜单搭建 ====================

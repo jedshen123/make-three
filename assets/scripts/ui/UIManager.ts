@@ -2,6 +2,7 @@ import { _decorator, Component, Label, Button, Node, tween, Vec3, Color, directo
 import { Player, GamePhase, GameMode, GameOverReason } from '../core/GameTypes';
 import { GameEngine } from '../core/GameEngine';
 import { AIController, AIDifficulty } from '../core/AIController';
+import { NetworkManager } from '../network/NetworkManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -51,6 +52,12 @@ export class UIManager extends Component {
 
   @property({ type: Label })
   messagePopupLabel!: Label;
+
+  /** 在线对战等待面板（SceneHelper 自动创建） */
+  onlinePanel: Node | null = null;
+  onlineLabel: Label | null = null;
+  /** 网络管理器引用（SceneHelper 设置） */
+  networkManager: NetworkManager | null = null;
 
   private _engine: GameEngine | null = null;
   private _aiController: AIController | null = null;
@@ -187,15 +194,53 @@ export class UIManager extends Component {
   }
 
   private _onSurrender(): void {
-    if (this._engine) {
-      this._engine.surrender();
+    if (!this._engine) return;
+
+    // 在线模式：通知对手
+    if (this.networkManager && this._engine.gameMode === GameMode.Online) {
+      this.networkManager.sendSurrender();
     }
+
+    this._engine.surrender();
   }
 
   private _onBack(): void {
     // TODO: 返回主菜单
     if (typeof director !== 'undefined') {
       director.loadScene('MainMenu');
+    }
+  }
+
+  // ==================== 在线对战 UI ====================
+
+  /** 显示"正在连接服务器" */
+  showOnlineConnecting(): void {
+    this._showOnlinePanel('正在连接服务器...');
+  }
+
+  /** 显示"正在匹配对手" */
+  showOnlineWaiting(): void {
+    this._showOnlinePanel('正在匹配对手...');
+  }
+
+  /** 显示"匹配成功" */
+  showOnlineMatched(myColor: Player): void {
+    const colorName = myColor === Player.Black ? '黑方（先手）' : '白方（后手）';
+    this._showOnlinePanel(`匹配成功！\n你是${colorName}`);
+  }
+
+  /** 隐藏在线面板 */
+  hideOnlinePanel(): void {
+    if (this.onlinePanel) {
+      this.onlinePanel.active = false;
+    }
+  }
+
+  private _showOnlinePanel(text: string): void {
+    if (!this.onlinePanel) return;
+    this.onlinePanel.active = true;
+    if (this.onlineLabel) {
+      this.onlineLabel.string = text;
     }
   }
 
