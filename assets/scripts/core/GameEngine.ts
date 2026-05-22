@@ -301,12 +301,11 @@ export class GameEngine {
 
   /** 检查对方是否输了（棋子不足） */
   private _checkGameOver(loser: Player): boolean {
-    const remaining = this._board.countPiecesOnBoard(loser);
-    // 被吃掉超过7枚即只剩2枚或更少（12 - 7 = 5?? 等等...）
-    // 用户规则：被吃掉的棋子超过7枚（即剩余≤4? 不对）
-    // 用户说：一方被吃掉的棋子超过7枚，在棋盘上只剩2枚或更少棋子
-    // 一开始12枚，被吃超过7枚 → 剩余 < 5 枚。但是"只剩2枚或更少"才是判定标准
-    if (remaining <= 2) {
+    const onBoard = this._board.countPiecesOnBoard(loser);
+    const inHand = this._piecesInHand[loser];
+    // 总剩余棋子（手中+棋盘）≤ 2 时判负
+    // 这保证下棋阶段不会被误判（手中还有棋子时计数低是正常的）
+    if (onBoard + inHand <= 2) {
       this._winner = this._currentPlayer;
       this._gameOverReason = GameOverReason.InsufficientPieces;
       this._phase = GamePhase.GameOver;
