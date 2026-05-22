@@ -5,6 +5,7 @@ import { AIController, AIDifficulty } from '../core/AIController';
 import { BoardRenderer } from './BoardRenderer';
 import { UIManager } from './UIManager';
 import { NetworkManager, NetworkState } from '../network/NetworkManager';
+import { CloudNetworkManager, CloudState } from '../network/CloudNetworkManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -21,6 +22,9 @@ export class GameManager extends Component {
 
   @property({ type: NetworkManager })
   networkManager!: NetworkManager;
+
+  @property({ type: CloudNetworkManager })
+  cloudNetworkManager!: CloudNetworkManager;
 
   engine!: GameEngine;
 
@@ -41,6 +45,8 @@ export class GameManager extends Component {
       this.uiManager = this.node.parent?.getComponentInChildren(UIManager) || null as any;
     if (!this.networkManager)
       this.networkManager = this.node.parent?.getComponentInChildren(NetworkManager) || null as any;
+    if (!this.cloudNetworkManager)
+      this.cloudNetworkManager = this.node.parent?.getComponentInChildren(CloudNetworkManager) || null as any;
 
     // 获取游戏模式
     let mode = GameMode.LocalTwoPlayer;
@@ -65,7 +71,12 @@ export class GameManager extends Component {
     if (mode === GameMode.AI) {
       this._initAIMode();
     } else if (mode === GameMode.Online) {
-      this._initOnlineMode();
+      // 微信小游戏环境优先使用云开发
+      if (this.cloudNetworkManager && typeof wx !== 'undefined' && typeof wx.cloud !== 'undefined') {
+        this._initCloudMode();
+      } else {
+        this._initOnlineMode();
+      }
     }
 
     this.uiManager?.updateUI();
@@ -146,6 +157,62 @@ export class GameManager extends Component {
     };
   }
 
+  // ==================== 云开发模式 ====================
+
+  private async _initCloudMode(): Promise<void> {
+    if (!this.cloudNetworkManager) return;
+
+    this.uiManager?.showOnlineConnecting();
+
+    const ok = await this.cloudNetworkManager.init();
+    if (!ok) return;
+
+    this.cloudNetworkManager.onError = (msg) => {
+      this.uiManager?.showMessage(msg, 3);
+    };
+
+    this.cloudNetworkManager.onStateChanged = (state) => {
+      if (state === CloudState.Matching) {
+        this.uiManager?.showOnlineWaiting();
+      }
+    };
+
+    this.cloudNetworkManager.onMatched = (myColor) => {
+      this._myColor = myColor;
+      this.uiManager?.showOnlineMatched(myColor);
+
+      setTimeout(() => {
+        this.uiManager?.hideOnlinePanel();
+        this.uiManager?.updateUI();
+        if (myColor === Player.White) {
+          this.uiManager?.showMessage('等待对手落子...', 2);
+        }
+      }, 1500);
+    };
+
+    // 对手操作回调（复用 WebSocket 模式的回调名）
+    this.cloudNetworkManager.onOpponentPlace = (position) => {
+      this.engine.placePiece(position);
+      this.boardRenderer?.refreshBoard();
+      this.uiManager?.updateUI();
+    };
+    this.cloudNetworkManager.onOpponentMove = (from, to) => {
+      this.engine.movePiece(from, to);
+      this.boardRenderer?.refreshBoard();
+      this.uiManager?.updateUI();
+    };
+    this.cloudNetworkManager.onOpponentRemove = (position) => {
+      this.engine.removePiece(position);
+      this.boardRenderer?.refreshBoard();
+      this.uiManager?.updateUI();
+    };
+    this.cloudNetworkManager.onOpponentSurrender = () => {
+      this.engine.surrender();
+    };
+
+    await this.cloudNetworkManager.startMatch();
+  }
+
   // ==================== 点击处理 ====================
 
   private _handlePointClick(index: number): void {
@@ -155,7 +222,8 @@ export class GameManager extends Component {
     if (this._aiController && this.engine.currentPlayer === this._aiController.aiPlayer) return;
 
     // 在线模式：不是我的回合不允许操作
-    if (this.networkManager && this._myColor !== Player.None) {
+    const isOnline = (this.networkManager || this.cloudNetworkManager) && this._myColor !== Player.None;
+    if (isOnline) {
       if (this.engine.currentPlayer !== this._myColor) {
         this.uiManager?.showMessage('等待对手操作...', 0.8);
         return;
@@ -181,9 +249,7 @@ export class GameManager extends Component {
 
     if (result.success) {
       // 在线模式：同步给对手
-      if (this.networkManager && this._myColor !== Player.None) {
-        this.networkManager.sendPlace(index);
-      }
+      this._syncToOpponent('place', index);
 
       this.uiManager?.showMessage('落子成功', 0.5);
       if (result.needRemove) {
@@ -217,9 +283,7 @@ export class GameManager extends Component {
 
     if (result.success) {
       // 在线模式：同步给对手
-      if (this.networkManager && this._myColor !== Player.None) {
-        this.networkManager.sendMove(this._selectedFrom, index);
-      }
+      this._syncToOpponent('move', index, this._selectedFrom);
 
       this._selectedFrom = -1;
       if (result.needRemove) {
@@ -248,9 +312,7 @@ export class GameManager extends Component {
 
     if (result.success) {
       // 在线模式：同步给对手
-      if (this.networkManager && this._myColor !== Player.None) {
-        this.networkManager.sendRemove(index);
-      }
+      this._syncToOpponent('remove', index);
 
       this._clickMode = 'placeOrMove';
       this.uiManager?.showMessage('吃子成功', 0.5);
@@ -278,10 +340,30 @@ export class GameManager extends Component {
     }
 
     // 在线模式：提示等待对手
-    if (this.networkManager && this._myColor !== Player.None &&
+    const isOnline = (this.networkManager || this.cloudNetworkManager) && this._myColor !== Player.None;
+    if (isOnline &&
         this.engine.currentPlayer !== this._myColor &&
         this.engine.phase !== GamePhase.GameOver) {
       this.uiManager?.showMessage('等待对手操作...', 2);
+    }
+  }
+
+  /** 统一同步操作到对手（WebSocket 或云开发） */
+  private _syncToOpponent(type: string, index: number, from?: number): void {
+    if (this._myColor === Player.None) return;
+
+    if (this.cloudNetworkManager) {
+      switch (type) {
+        case 'place': this.cloudNetworkManager.sendPlace(index); break;
+        case 'move': this.cloudNetworkManager.sendMove(from!, index); break;
+        case 'remove': this.cloudNetworkManager.sendRemove(index); break;
+      }
+    } else if (this.networkManager) {
+      switch (type) {
+        case 'place': this.networkManager.sendPlace(index); break;
+        case 'move': this.networkManager.sendMove(from!, index); break;
+        case 'remove': this.networkManager.sendRemove(index); break;
+      }
     }
   }
 }

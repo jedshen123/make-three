@@ -3,6 +3,7 @@ import { BoardRenderer } from './BoardRenderer';
 import { UIManager } from './UIManager';
 import { GameManager } from './GameManager';
 import { NetworkManager } from '../network/NetworkManager';
+import { CloudNetworkManager } from '../network/CloudNetworkManager';
 const { ccclass, property } = _decorator;
 
 /**
@@ -83,9 +84,13 @@ export class SceneHelper extends Component {
     // ── UI 层 ──
     const uiManager = this._buildUI(gameRoot);
 
-    // ── 网络模块 ──
+    // ── 网络模块（WebSocket） ──
     const netNode = this._createNode('NetworkManager', gameRoot);
     const networkManager = netNode.addComponent(NetworkManager);
+
+    // ── 网络模块（云开发） ──
+    const cloudNode = this._createNode('CloudNetworkManager', gameRoot);
+    const cloudNetworkManager = cloudNode.addComponent(CloudNetworkManager);
 
     // ── 在线对战等待面板 ──
     const onlinePanel = this._buildOnlinePanel(uiManager);
@@ -96,6 +101,7 @@ export class SceneHelper extends Component {
     gameManager.boardRenderer = boardRenderer;
     gameManager.uiManager = uiManager;
     gameManager.networkManager = networkManager;
+    gameManager.cloudNetworkManager = cloudNetworkManager;
     // 在线认输需要网络同步
     uiManager.networkManager = networkManager;
 
