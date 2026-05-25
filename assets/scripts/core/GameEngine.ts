@@ -157,7 +157,9 @@ export class GameEngine {
       return { success: false, error: '该棋子不能被吃（可能已形成三连且对方有未成三的棋子）' };
     }
 
-    this._board.removePiece(position);
+    // 下棋阶段盖住标记，走棋阶段直接移除（空出位置）
+    const capturer = this._phase === GamePhase.Placing ? this._currentPlayer : null;
+    this._board.removePiece(position, capturer);
     this._piecesOnBoard[targetPlayer]--;
 
     // 更新最后一步操作的吃子信息
@@ -211,8 +213,8 @@ export class GameEngine {
     const lastMove = this._history.pop()!;
 
     if (lastMove.placeAt !== undefined) {
-      // 撤销放置
-      this._board.removePiece(lastMove.placeAt);
+      // 撤销放置（不移除棋子，只标记为空位，不创建被吃标记）
+      this._board.removePiece(lastMove.placeAt, null);
       this._piecesInHand[this.opponent]++;
       this._piecesOnBoard[this.opponent]--;
       this._currentPlayer = this.opponent;
@@ -234,7 +236,7 @@ export class GameEngine {
   getState(): GameState {
     return {
       board: [...this._board.board],
-      blockedCells: Array.from(this._board.blockedCells),
+      blockedCells: Array.from(this._board.blockedCells.entries()),
       currentPlayer: this._currentPlayer,
       phase: this._phase,
       winner: this._winner,
@@ -257,8 +259,8 @@ export class GameEngine {
       }
     }
     // 恢复被吃棋子的标记
-    for (const idx of state.blockedCells) {
-      this._board.removePiece(idx);
+    for (const [idx, capturer] of state.blockedCells) {
+      this._board.removePiece(idx, capturer);
     }
     this._currentPlayer = state.currentPlayer;
     this._phase = state.phase;
@@ -279,6 +281,8 @@ export class GameEngine {
     // 检查是否需要进入走棋阶段：双方手中都没有棋子时切换
     if (this._phase === GamePhase.Placing) {
       if (this._piecesInHand[Player.Black] <= 0 && this._piecesInHand[Player.White] <= 0) {
+        // 进入走棋阶段：清除所有被吃标记，空出位置
+        this._board.clearBlockedCells();
         this._phase = GamePhase.Moving;
       }
     }

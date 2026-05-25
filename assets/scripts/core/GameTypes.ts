@@ -63,8 +63,8 @@ export type MillLine = [number, number, number];
 export interface BoardState {
   /** board[pointIndex] = Player.None | Player.Black | Player.White */
   board: Player[];
-  /** 标记为不可放置的位置（被吃掉后标记的位置） */
-  blockedCells: Set<number>;
+  /** 被吃掉的棋子：[位置, 打子方] */
+  blockedCells: [number, Player][];
 }
 
 /** 一步操作 */
@@ -81,7 +81,7 @@ export interface Move {
 /** 游戏完整状态（用于同步/存档） */
 export interface GameState {
   board: Player[];
-  blockedCells: number[];
+  blockedCells: [number, Player][];
   currentPlayer: Player;
   phase: GamePhase;
   winner: Player;
@@ -255,15 +255,26 @@ export const MILL_LINES: MillLine[] = [
   [3, 11, 19],  // 右中点连线
 ];
 
-/** 棋盘点位在逻辑坐标中的位置（归一化到棋盘边长） */
+/**
+ * 棋盘点位在逻辑坐标中的位置（归一化到棋盘边长）
+ *
+ * 三个正方形等间距布局：
+ *   外圈：0 ~ 2      边长 2
+ *   中圈：2/3 ~ 4/3   边长 2/3
+ *   内圈：1/3 ~ 5/3   边长 ... 不对
+ *
+ * 正确等间距：外圈 0~2，间距 d = 2/3
+ *   中圈：1/3 ~ 5/3   边长 4/3
+ *   内圈：2/3 ~ 4/3   边长 2/3
+ */
 export const POINT_POSITIONS: BoardPosition[] = [
-  // 外圈 (0-7)
+  // 外圈 (0-7) 范围 0~2
   { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 2, y: 1 },
   { x: 2, y: 2 }, { x: 1, y: 2 }, { x: 0, y: 2 }, { x: 0, y: 1 },
-  // 中圈 (8-15)
-  { x: 0.5, y: 0.5 }, { x: 1, y: 0.5 }, { x: 1.5, y: 0.5 }, { x: 1.5, y: 1 },
-  { x: 1.5, y: 1.5 }, { x: 1, y: 1.5 }, { x: 0.5, y: 1.5 }, { x: 0.5, y: 1 },
-  // 内圈 (16-23)
-  { x: 0.75, y: 0.75 }, { x: 1, y: 0.75 }, { x: 1.25, y: 0.75 }, { x: 1.25, y: 1 },
-  { x: 1.25, y: 1.25 }, { x: 1, y: 1.25 }, { x: 0.75, y: 1.25 }, { x: 0.75, y: 1 },
+  // 中圈 (8-15) 范围 1/3~5/3
+  { x: 1/3, y: 1/3 }, { x: 1, y: 1/3 }, { x: 5/3, y: 1/3 }, { x: 5/3, y: 1 },
+  { x: 5/3, y: 5/3 }, { x: 1, y: 5/3 }, { x: 1/3, y: 5/3 }, { x: 1/3, y: 1 },
+  // 内圈 (16-23) 范围 2/3~4/3
+  { x: 2/3, y: 2/3 }, { x: 1, y: 2/3 }, { x: 4/3, y: 2/3 }, { x: 4/3, y: 1 },
+  { x: 4/3, y: 4/3 }, { x: 1, y: 4/3 }, { x: 2/3, y: 4/3 }, { x: 2/3, y: 1 },
 ];

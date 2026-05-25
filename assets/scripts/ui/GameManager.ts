@@ -2,6 +2,7 @@ import { _decorator, Component, Node, director, sys } from 'cc';
 import { Player, GameMode, GamePhase, GameOverReason } from '../core/GameTypes';
 import { GameEngine } from '../core/GameEngine';
 import { AIController, AIDifficulty } from '../core/AIController';
+import { SoundManager } from '../core/SoundManager';
 import { BoardRenderer } from './BoardRenderer';
 import { UIManager } from './UIManager';
 import { NetworkManager, NetworkState } from '../network/NetworkManager';
@@ -218,6 +219,9 @@ export class GameManager extends Component {
   private _handlePointClick(index: number): void {
     if (this.engine.phase === GamePhase.GameOver) return;
 
+    // 首次交互时初始化音频
+    SoundManager.instance.init();
+
     // AI 回合不允许操作
     if (this._aiController && this.engine.currentPlayer === this._aiController.aiPlayer) return;
 
@@ -248,11 +252,14 @@ export class GameManager extends Component {
     const result = this.engine.placePiece(index);
 
     if (result.success) {
+      SoundManager.instance.playPlace();
+
       // 在线模式：同步给对手
       this._syncToOpponent('place', index);
 
       this.uiManager?.showMessage('落子成功', 0.5);
       if (result.needRemove) {
+        SoundManager.instance.playMill();
         this._clickMode = 'removePiece';
         this.boardRenderer?.refreshBoard();
         this.uiManager?.updateUI();
@@ -270,23 +277,58 @@ export class GameManager extends Component {
     const board = this.engine.board;
 
     if (this._selectedFrom < 0) {
+      // ── 选中棋子 ──
       if (board.getPiece(index) !== this.engine.currentPlayer) {
         this.uiManager?.showMessage('请选择己方棋子', 0.8);
         return;
       }
+
+      // 检查该棋子是否有可走位置
+      const moves = board.getAvailableMoves(this.engine.currentPlayer);
+      const targets = moves.get(index);
+      if (!targets || targets.length === 0) {
+        this.uiManager?.showMessage('该棋子无法移动', 1);
+        return;
+      }
+
       this._selectedFrom = index;
       this.boardRenderer?.selectPiece(index);
+      this.boardRenderer?.showMoveTargets(targets);
       return;
     }
 
+    // ── 点击同一棋子 → 取消选中 ──
+    if (index === this._selectedFrom) {
+      this._selectedFrom = -1;
+      this.boardRenderer?.refreshBoard();
+      return;
+    }
+
+    // ── 点击己方另一棋子 → 切换选中 ──
+    if (board.getPiece(index) === this.engine.currentPlayer) {
+      const moves = board.getAvailableMoves(this.engine.currentPlayer);
+      const targets = moves.get(index);
+      if (!targets || targets.length === 0) {
+        this.uiManager?.showMessage('该棋子无法移动', 1);
+        return;
+      }
+      this._selectedFrom = index;
+      this.boardRenderer?.selectPiece(index);
+      this.boardRenderer?.showMoveTargets(targets);
+      return;
+    }
+
+    // ── 执行走棋 ──
     const result = this.engine.movePiece(this._selectedFrom, index);
 
     if (result.success) {
-      // 在线模式：同步给对手
+      SoundManager.instance.playMove();
+
       this._syncToOpponent('move', index, this._selectedFrom);
 
       this._selectedFrom = -1;
       if (result.needRemove) {
+        SoundManager.instance.playMill();
         this._clickMode = 'removePiece';
         this.boardRenderer?.refreshBoard();
         this.uiManager?.updateUI();
@@ -294,14 +336,9 @@ export class GameManager extends Component {
         this._afterTurn();
       }
     } else {
-      if (board.getPiece(index) === this.engine.currentPlayer) {
-        this._selectedFrom = index;
-        this.boardRenderer?.selectPiece(index);
-      } else {
-        this.uiManager?.showMessage(result.error || '无法移动', 1);
-        this._selectedFrom = -1;
-        this.boardRenderer?.refreshBoard();
-      }
+      this.uiManager?.showMessage(result.error || '无法移动', 1);
+      this._selectedFrom = -1;
+      this.boardRenderer?.refreshBoard();
     }
   }
 
@@ -311,6 +348,8 @@ export class GameManager extends Component {
     const result = this.engine.removePiece(index);
 
     if (result.success) {
+      SoundManager.instance.playCapture();
+
       // 在线模式：同步给对手
       this._syncToOpponent('remove', index);
 

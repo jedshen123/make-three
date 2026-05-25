@@ -51,7 +51,8 @@ export class SceneHelper extends Component {
 
   private _setupCanvas(): void {
     let canvasNode = this.node;
-    if (!this.node.getComponent(Canvas)) {
+    const canvas = this.node.getComponent(Canvas);
+    if (!canvas) {
       const c = director.getScene()?.getComponentInChildren(Canvas);
       if (c) canvasNode = c.node;
     }
@@ -60,6 +61,17 @@ export class SceneHelper extends Component {
     if (uiTransform) {
       uiTransform.setContentSize(new Size(this.designWidth, this.designHeight));
     }
+
+    // 竖屏适配：fitHeight=true 保证高度铺满，宽度按比例缩放
+    // 不要同时设 fitWidth=true，否则画面会被拉伸变形
+    const canvasComp = canvasNode.getComponent(Canvas);
+    if (canvasComp) {
+      canvasComp.fitHeight = true;
+      canvasComp.fitWidth = false;
+    }
+
+    // 确保 Canvas 节点位于屏幕中心
+    canvasNode.setPosition(0, 0, 0);
 
     // 设置 Canvas 背景色（木色底，棋盘线条才可见）
     const bg = canvasNode.getComponent(Graphics) || canvasNode.addComponent(Graphics);
@@ -152,7 +164,7 @@ export class SceneHelper extends Component {
     const phaseLabel = this._createLabel('PhaseLabel', topBar, '成三棋', 26, new Color(200, 180, 140, 255));
     phaseLabel.setPosition(0, 30, 0);
 
-    const statusLabel = this._createLabel('StatusLabel', topBar, '黑方回合', 36, Color.WHITE);
+    const statusLabel = this._createLabel('StatusLabel', topBar, '黑方回合', 42, Color.WHITE);
     statusLabel.setPosition(0, -5, 0);
     // 默认黑棋颜色（深色底上需要亮色文字）
     // 回合切换时动态改变
@@ -165,10 +177,10 @@ export class SceneHelper extends Component {
     infoBar.addComponent(UITransform).setContentSize(new Size(this.designWidth, 50));
     infoBar.setPosition(0, (this.designHeight - 110) / 2 - 70, 0);
 
-    const blackLabel = this._createLabel('PiecesBlack', infoBar, '● 黑方: 手 12 | 盘 0', 22, new Color(60, 60, 60, 255));
+    const blackLabel = this._createLabel('PiecesBlack', infoBar, '● 黑方: 手 12 | 盘 0', 26, new Color(60, 60, 60, 255));
     blackLabel.setPosition(-this.designWidth / 4, 0, 0);
 
-    const whiteLabel = this._createLabel('PiecesWhite', infoBar, '○ 白方: 手 12 | 盘 0', 22, new Color(180, 180, 180, 255));
+    const whiteLabel = this._createLabel('PiecesWhite', infoBar, '○ 白方: 手 12 | 盘 0', 26, new Color(180, 180, 180, 255));
     whiteLabel.setPosition(this.designWidth / 4, 0, 0);
 
     uiManager.piecesBlackLabel = blackLabel.getComponent(Label)!;
@@ -176,19 +188,19 @@ export class SceneHelper extends Component {
 
     // ── 底部按钮栏 ──
     const bottomBar = this._createNode('BottomBar', uiRoot);
-    bottomBar.addComponent(UITransform).setContentSize(new Size(this.designWidth, 70));
+    bottomBar.addComponent(UITransform).setContentSize(new Size(this.designWidth, 88));
     bottomBar.setPosition(0, (-this.designHeight + 70) / 2 + 15, 0);
 
-    const btnWidth = 130;
-    const btnGap = 20;
+    const btnWidth = 160;
+    const btnGap = 15;
     const btnY = 0;
     const totalWidth = btnWidth * 4 + btnGap * 3;
     const startX = -totalWidth / 2 + btnWidth / 2;
 
-    uiManager.undoButton = this._createButton('UndoBtn', bottomBar, '撤销', startX, btnY, btnWidth, 48);
-    uiManager.restartButton = this._createButton('RestartBtn', bottomBar, '重来', startX + (btnWidth + btnGap), btnY, btnWidth, 48);
-    uiManager.surrenderButton = this._createButton('SurrenderBtn', bottomBar, '认输', startX + (btnWidth + btnGap) * 2, btnY, btnWidth, 48);
-    uiManager.backButton = this._createButton('BackBtn', bottomBar, '返回', startX + (btnWidth + btnGap) * 3, btnY, btnWidth, 48);
+    uiManager.undoButton = this._createButton('UndoBtn', bottomBar, '撤销', startX, btnY, btnWidth, 60);
+    uiManager.restartButton = this._createButton('RestartBtn', bottomBar, '重来', startX + (btnWidth + btnGap), btnY, btnWidth, 60);
+    uiManager.surrenderButton = this._createButton('SurrenderBtn', bottomBar, '认输', startX + (btnWidth + btnGap) * 2, btnY, btnWidth, 60);
+    uiManager.backButton = this._createButton('BackBtn', bottomBar, '返回', startX + (btnWidth + btnGap) * 3, btnY, btnWidth, 60);
 
     // ── 游戏结束面板 ──
     const gameOverPanel = this._createNode('GameOverPanel', uiRoot);
@@ -376,7 +388,7 @@ export class SceneHelper extends Component {
     btnBg.stroke();
 
     // 按钮文字
-    const btnLabel = this._createLabel(`${name}_Label`, btnNode, text, 28, Color.WHITE);
+    const btnLabel = this._createLabel(`${name}_Label`, btnNode, text, 34, Color.WHITE);
 
     const btn = btnNode.addComponent(Button);
     btn.target = btnNode;

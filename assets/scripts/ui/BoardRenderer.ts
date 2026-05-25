@@ -42,6 +42,9 @@ export class BoardRenderer extends Component {
   /** 高亮指示器 */
   private _highlightNode: Node | null = null;
 
+  /** 可走目标指示器 */
+  private _moveTargetNodes: Node[] = [];
+
   /** 点击回调 */
   onPointClick: ((pointIndex: number) => void) | null = null;
 
@@ -74,7 +77,7 @@ export class BoardRenderer extends Component {
       screenHeight = uiTransform.height;
     }
 
-    this._boardSize = Math.min(screenWidth, screenHeight) * 0.8;
+    this._boardSize = Math.min(screenWidth, screenHeight) * 1.0;
     this._scale = this._boardSize / 2; // 逻辑坐标 0~2 映射到 -boardSize/2 ~ +boardSize/2
   }
 
@@ -97,7 +100,7 @@ export class BoardRenderer extends Component {
     g.clear();
 
     const lineColor = new Color(80, 45, 20, 255); // 深木色，在浅色底上清晰
-    const lineWidth = 4;
+    const lineWidth = 6;
 
     // 收集所有要画的线段
     const drawnEdges = new Set<string>();
@@ -125,7 +128,7 @@ export class BoardRenderer extends Component {
     }
 
     // 绘制24个落子点标记（小圆点）
-    const dotRadius = 7;
+    const dotRadius = 14;
     const dotColor = new Color(120, 65, 30, 200);
     for (let i = 0; i < BOARD_SIZE; i++) {
       const pos = this.getPixelPosition(i);
@@ -159,7 +162,7 @@ export class BoardRenderer extends Component {
 
   /** 查找距离触摸点最近的棋盘点位 */
   private _findNearestPoint(x: number, y: number): number {
-    const threshold = this._boardSize * 0.06; // 点击判定范围
+    const threshold = this._boardSize * 0.12; // 点击判定范围
     let nearest = -1;
     let minDist = Infinity;
 
@@ -234,7 +237,7 @@ export class BoardRenderer extends Component {
 
     const graphics = node.addComponent(Graphics);
     const uiTransform = node.addComponent(UITransform);
-    const pieceRadius = this._boardSize * 0.025;
+    const pieceRadius = this._boardSize * 0.07;
     uiTransform.setContentSize(new Size(pieceRadius * 2, pieceRadius * 2));
 
     // 绘制圆形棋子
@@ -247,7 +250,7 @@ export class BoardRenderer extends Component {
     // 白色棋子加边框
     if (player === Player.White) {
       graphics.strokeColor = new Color(80, 80, 80, 255);
-      graphics.lineWidth = 2;
+      graphics.lineWidth = 3;
       graphics.circle(0, 0, pieceRadius);
       graphics.stroke();
     }
@@ -270,34 +273,60 @@ export class BoardRenderer extends Component {
     }
     this._blockedNodes.clear();
 
-    // 添加新标记
+    // 添加新标记（Map<位置, 打子方>）
     const blockedCells = this._engine.board.blockedCells;
-    for (const idx of blockedCells) {
-      const markNode = this._createBlockedMark(idx);
+    for (const [idx, capturer] of blockedCells) {
+      const markNode = this._createBlockedMark(idx, capturer);
       this._blockedNodes.set(idx, markNode);
       this.labelContainer.addChild(markNode);
     }
   }
 
-  /** 创建红色X标记 */
-  private _createBlockedMark(index: number): Node {
+  /**
+   * 创建被吃标记
+   * 底层：正常大小的被吃棋子
+   * 顶层：半大小的打子方棋子，盖在上面
+   */
+  private _createBlockedMark(index: number, capturer: Player): Node {
     const node = new Node(`Blocked_${index}`);
     node.setPosition(this.getPixelPosition(index));
 
     const graphics = node.addComponent(Graphics);
     const uiTransform = node.addComponent(UITransform);
-    const size = this._boardSize * 0.04;
-    uiTransform.setContentSize(new Size(size, size));
+    const bigRadius = this._boardSize * 0.06;   // 底层（被吃棋子，全尺寸）
+    const smallRadius = bigRadius * 0.5;         // 顶层（打子方，半尺寸）
+    const containerSize = bigRadius * 2.4;
+    uiTransform.setContentSize(new Size(containerSize, containerSize));
 
-    graphics.strokeColor = new Color(220, 50, 50, 200);
-    graphics.lineWidth = 3;
-    // 画X
-    graphics.moveTo(-size / 2, -size / 2);
-    graphics.lineTo(size / 2, size / 2);
-    graphics.stroke();
-    graphics.moveTo(size / 2, -size / 2);
-    graphics.lineTo(-size / 2, size / 2);
-    graphics.stroke();
+    const captured = capturer === Player.Black ? Player.White : Player.Black;
+
+    // ── 底层：被吃棋子（全尺寸，居中） ──
+    const bottomColor = captured === Player.Black
+      ? new Color(30, 30, 30, 255)
+      : new Color(235, 235, 235, 255);
+    graphics.fillColor = bottomColor;
+    graphics.circle(0, 0, bigRadius);
+    graphics.fill();
+    if (captured === Player.White) {
+      graphics.strokeColor = new Color(80, 80, 80, 255);
+      graphics.lineWidth = 2;
+      graphics.circle(0, 0, bigRadius);
+      graphics.stroke();
+    }
+
+    // ── 顶层：打子方棋子（半尺寸，盖在正中间） ──
+    const topColor = capturer === Player.Black
+      ? new Color(30, 30, 30, 255)
+      : new Color(240, 240, 240, 255);
+    graphics.fillColor = topColor;
+    graphics.circle(0, 0, smallRadius);
+    graphics.fill();
+    if (capturer === Player.White) {
+      graphics.strokeColor = new Color(80, 80, 80, 255);
+      graphics.lineWidth = 1.5;
+      graphics.circle(0, 0, smallRadius);
+      graphics.stroke();
+    }
 
     return node;
   }
@@ -307,7 +336,6 @@ export class BoardRenderer extends Component {
     this._clearSelection();
     this._selectedPiece = index;
 
-    // 创建高亮环
     const node = this._pieceNodes.get(index);
     if (node) {
       this._highlightNode = new Node('Highlight');
@@ -315,16 +343,50 @@ export class BoardRenderer extends Component {
 
       const graphics = this._highlightNode.addComponent(Graphics);
       const uiTransform = this._highlightNode.addComponent(UITransform);
-      const radius = this._boardSize * 0.03;
+      const radius = this._boardSize * 0.075;
       uiTransform.setContentSize(new Size(radius * 2, radius * 2));
 
-      graphics.strokeColor = new Color(255, 215, 0, 220); // 金色
+      // 半透明金色填充 + 边框
+      graphics.fillColor = new Color(255, 215, 0, 80);
+      graphics.circle(0, 0, radius);
+      graphics.fill();
+      graphics.strokeColor = new Color(255, 215, 0, 220);
       graphics.lineWidth = 3;
       graphics.circle(0, 0, radius);
       graphics.stroke();
 
       this.pieceContainer.addChild(this._highlightNode);
     }
+  }
+
+  /** 显示可走目标位置 */
+  showMoveTargets(targets: number[]): void {
+    this._clearMoveTargets();
+    for (const idx of targets) {
+      const pos = this.getPixelPosition(idx);
+      const node = new Node(`Target_${idx}`);
+      node.setPosition(pos);
+
+      const graphics = node.addComponent(Graphics);
+      const uiTransform = node.addComponent(UITransform);
+      const r = this._boardSize * 0.04;
+      uiTransform.setContentSize(new Size(r * 2, r * 2));
+
+      graphics.fillColor = new Color(100, 200, 100, 160);
+      graphics.circle(0, 0, r * 0.7);
+      graphics.fill();
+
+      this._moveTargetNodes.push(node);
+      this.pieceContainer.addChild(node);
+    }
+  }
+
+  private _clearMoveTargets(): void {
+    for (const node of this._moveTargetNodes) {
+      node.removeFromParent();
+      node.destroy();
+    }
+    this._moveTargetNodes = [];
   }
 
   private _clearSelection(): void {
@@ -334,5 +396,6 @@ export class BoardRenderer extends Component {
       this._highlightNode.destroy();
       this._highlightNode = null;
     }
+    this._clearMoveTargets();
   }
 }

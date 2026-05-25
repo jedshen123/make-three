@@ -10,19 +10,19 @@ import {
 export class Board {
   /** board[i] = Player.None | Player.Black | Player.White */
   private _board: Player[];
-  /** 被吃掉后标记不可放置的位置 */
-  private _blockedCells: Set<number>;
+  /** 被吃掉的棋子：位置 → 打子方（谁吃了这枚棋子） */
+  private _blockedCells: Map<number, Player>;
 
   constructor() {
     this._board = new Array(BOARD_SIZE).fill(Player.None);
-    this._blockedCells = new Set<number>();
+    this._blockedCells = new Map<number, Player>();
   }
 
   /** 深拷贝当前棋盘状态 */
   clone(): Board {
     const b = new Board();
     b._board = [...this._board];
-    b._blockedCells = new Set(this._blockedCells);
+    b._blockedCells = new Map(this._blockedCells);
     return b;
   }
 
@@ -37,8 +37,8 @@ export class Board {
     return this._board;
   }
 
-  /** 不可放置的位置集合（只读） */
-  get blockedCells(): ReadonlySet<number> {
+  /** 被吃棋子信息（只读）：位置 → 打子方 */
+  get blockedCells(): ReadonlyMap<number, Player> {
     return this._blockedCells;
   }
 
@@ -70,14 +70,16 @@ export class Board {
   }
 
   /**
-   * 吃掉对方一枚棋子
-   * @returns 是否成功
+   * 移除棋子（吃子或撤销）
+   * @param capturer 打子方，传 null 表示不标记（用于撤销）
    */
-  removePiece(index: number): boolean {
+  removePiece(index: number, capturer: Player | null = null): boolean {
     if (!this.isValidPosition(index)) return false;
     if (this._board[index] === Player.None) return false;
     this._board[index] = Player.None;
-    this._blockedCells.add(index);
+    if (capturer !== null) {
+      this._blockedCells.set(index, capturer);
+    }
     return true;
   }
 
@@ -120,25 +122,16 @@ export class Board {
   }
 
   /**
-   * 获取玩家所有可被吃的棋子（不在成三中的棋子）
-   * 规则：不能吃对方已成三的棋子，除非对方所有棋子都已成三
+   * 获取玩家所有可被吃的棋子
+   * 规则：对方任何棋子都可以被吃（包括已成三的棋子）
    */
   getRemovablePieces(player: Player): number[] {
-    const millPieces = this.getPlayerMillPieces(player);
     const removable: number[] = [];
-
     for (let i = 0; i < BOARD_SIZE; i++) {
       if (this._board[i] === player && !this._blockedCells.has(i)) {
         removable.push(i);
       }
     }
-
-    // 过滤已成三的（除非全部都成三）
-    const nonMillPieces = removable.filter((i) => !millPieces.has(i));
-    if (nonMillPieces.length > 0) {
-      return nonMillPieces;
-    }
-    // 全部成三，都可以吃
     return removable;
   }
 
@@ -188,6 +181,11 @@ export class Board {
   /** 清空棋盘 */
   reset(): void {
     this._board = new Array(BOARD_SIZE).fill(Player.None);
+    this._blockedCells.clear();
+  }
+
+  /** 清除所有被吃标记（进入走棋阶段时调用） */
+  clearBlockedCells(): void {
     this._blockedCells.clear();
   }
 
